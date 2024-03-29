@@ -16,23 +16,24 @@ JavaScript Front End.
 
 Database Schema:  
 
-Game (table) Id (column)
-Players (column) 
-Player1’s moves (column)  (column, array of a vertices) int 
-Player2’s moves (column)  (column, array of a vertices) int 
-Winner (column, consists of a player)
-Loser (column, consists of a player)
+Game (key)
+Id (value)
+Players (value)
+Player1’s moves (value)  (value, array of a vertices) int 
+Player2’s moves (value)  (value, array of a vertices) int 
+Winner (value, consists of a player)
+Loser (value, consists of a player)
 
 
-Player (table)
-ID (column)
-Wins (column) int 
-Losses(column) int
+Player (key)
+ID (value)
+Wins (value) int 
+Losses(value) int
 
 
 Logic:
 
-Each player (table) has  moves (column). The front end renders the board. If box 1 in the board is clicked by player 1 for instance, the number 1 is sent to the player's moves column.
+Each player (key) has  moves (value). The front end renders the board. If box 1 in the board is clicked by player 1 for instance, the number 1 is sent to the player's moves value.
 
 Each player's moves should be an array of vertices for that game. There should be an array of vertices which contains every combinatorial winning sequence. For example, if the matrix / graph is represented as 
 123
