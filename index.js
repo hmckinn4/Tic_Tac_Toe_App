@@ -1,132 +1,144 @@
-// import the required modules
+// Import necessary modules
 const express = require('express');
 const redis = require('redis');
-const cors = require('cors');
+const bodyParser = require('body-parser');
+const path = require('path'); // Add this line to use the path module
 const { v4: uuidv4 } = require('uuid');
-const path = require('path');
 
-// Set up the Express app and middleware
+// Initialize Express app and middleware
 const app = express();
-const port = process.env.PORT || 3000;
+app.use(bodyParser.json());
 
-app.use(cors());
-app.use(express.json());
-
-// Create a Redis client and connect to the server
-const redisClient = redis.createClient({ url: 'redis://localhost:6379' });
-redisClient.connect().catch(console.error);
-
-// Serve static files from the public directory
+// Serve static files from the 'public' directory
 app.use(express.static('public'));
 
-// Define a root route
-app.get('/', (req, res) => {
-  res.send('Tic Tac Toe App is running!');
-});
+// Initialize Redis client
+const redisClient = redis.createClient();
+redisClient.on('error', (err) => console.log('Redis Client Error', err));
 
-// Implement the endpoint to start a new game
-app.post('/game', async (req, res) => {
-  const gameId = uuidv4();
-  let playerMoves = [];
-  let computerMoves = [];
-  let turn = Math.random() < 0.5 ? 'player' : 'computer';
-  
-  if (turn === 'computer') {
-    // Computer makes its move immediately
-    computerMoves.push(getRandomOpenSpot(playerMoves, computerMoves));
-    turn = 'player'; // Now it's the player's turn
-  }
+// Connect to Redis
+(async () => {
+    try {
+        await redisClient.connect();
+    } catch (err) {
+        console.error('Error connecting to Redis', err);
+    }
+})();
 
-  await redisClient.hSet(`game:${gameId}`, {
-    playerMoves: JSON.stringify(playerMoves),
-    computerMoves: JSON.stringify(computerMoves),
-    turn: turn,
-    winner: '',
-  });
+// Function to determine if the game has been won
+function checkWin(moves) {
+    const winConditions = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8],
+        [0, 4, 8],
+        [2, 4, 6]
+    ];
 
-  res.json({ 
-    gameId, 
-    startsFirst: turn, 
-    playerMoves, 
-    computerMoves // Send the initial move if the computer starts first
-  });
-});
-
-// Implement the helper function to get a random open spot
-function getRandomOpenSpot(playerMoves, computerMoves) {
-  const takenMoves = [...playerMoves, ...computerMoves];
-  const availableMoves = Array.from({ length: 9 }, (_, i) => i).filter(
-    (move) => !takenMoves.includes(move)
-  );
-  const randomIndex = Math.floor(Math.random() * availableMoves.length);
-  return availableMoves[randomIndex];
+    return winConditions.some((condition) => {
+        return condition.every((index) => moves.includes(index));
+    });
 }
 
-// Implement the endpoint to handle a player's move  
-app.post('/game/:gameId/move', async (req, res) => {
-  const { gameId } = req.params;
-  const move = req.body.move; // May be undefined if the computer is making the first move
+// Function to generate a computer move
+function generateComputerMove(playerMoves, computerMoves) {
+    const availableMoves = [...Array(9).keys()].filter((index) => {
+        return !playerMoves.includes(index) && !computerMoves.includes(index);
+    });
 
-  const gameState = await redisClient.hGetAll(`game:${gameId}`);
-  let playerMoves = JSON.parse(gameState.playerMoves || "[]");
-  let computerMoves = JSON.parse(gameState.computerMoves || "[]");
-  let turn = gameState.turn;
-  let gameOver = false;
-
-  // Handle the computer's first move if undefined, which means the computer starts the game
-  if (move === undefined && turn === 'computer') {
-    computerMoves.push(getRandomOpenSpot(playerMoves, computerMoves));
-    turn = 'player'; // Set turn to player after the computer's move
-  } else if (turn === 'player' && move !== undefined && !playerMoves.includes(move) && !computerMoves.includes(move)) {
-    // Handle the player's move
-    playerMoves.push(move);
-  } else {
-    return res.status(400).json({ error: 'Not a valid move' });
-  }
-
-  // Check for a win or a draw
-  let winner = checkForWin(playerMoves) ? 'player' : checkForWin(computerMoves) ? 'computer' : '';
-  const draw = !winner && (playerMoves.length + computerMoves.length === 9);
-  if (draw) {
-    winner = 'draw';
-  }
-  gameOver = !!winner || draw;
-
-  // Update the Redis store
-  await redisClient.hSet(`game:${gameId}`, {
-    playerMoves: JSON.stringify(playerMoves),
-    computerMoves: JSON.stringify(computerMoves),
-    winner: winner,
-    turn: gameOver ? 'end' : 'player',
-  });
-
-  res.json({
-    playerMoves,
-    computerMoves,
-    winner,
-    gameOver,
-  });
-});
-
-// Implement the function to check for a win
-function checkForWin(moves) {
-  const winningCombinations = [
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8], // Rows
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8], // Columns
-    [0, 4, 8],
-    [2, 4, 6] // Diagonals
-  ];
-
-  return winningCombinations.some((combination) =>
-    combination.every((position) => moves.includes(position))
-  );
+    if (availableMoves.length > 0) {
+        const randomIndex = Math.floor(Math.random() * availableMoves.length);
+        return availableMoves[randomIndex];
+    }
+    return null;
 }
+
+// Function to start a new game
+async function startNewGame(req, res) {
+    const gameId = uuidv4();
+    const startsFirst = Math.random() < 0.5 ? 'computer' : 'player';
+
+    const gameState = {
+        playerMoves: [],
+        computerMoves: [],
+        gameOver: false,
+        winner: null
+    };
+
+    if (startsFirst === 'computer') {
+        // Make the first move as the computer
+        gameState.computerMoves.push(generateComputerMove([], []));
+    }
+
+    // Use the native async methods of Redis client
+    await redisClient.hSet(`game:${gameId}`, 'state', JSON.stringify(gameState));
+
+    res.json({ gameId, startsFirst });
+}
+
+// Function to make a move in the game
+async function makeMove(req, res) {
+    const { gameId } = req.params;
+    const { move } = req.body; // This can be undefined for the computer's first move
+
+    const gameStateString = await redisClient.hGet(`game:${gameId}`, 'state');
+    const gameState = JSON.parse(gameStateString);
+
+    if (gameState.gameOver) {
+        return res.status(400).send('Game is already over.');
+    }
+
+    if (move !== undefined && !gameState.playerMoves.includes(move) && !gameState.computerMoves.includes(move)) {
+        gameState.playerMoves.push(move);
+
+        if (checkWin(gameState.playerMoves)) {
+            gameState.gameOver = true;
+            gameState.winner = 'player';
+        }
+    }
+
+    if (!gameState.gameOver) {
+        const computerMove = generateComputerMove(gameState.playerMoves, gameState.computerMoves);
+        if (computerMove !== null) {
+            gameState.computerMoves.push(computerMove);
+        }
+
+        if (checkWin(gameState.computerMoves)) {
+            gameState.gameOver = true;
+            gameState.winner = 'computer';
+        }
+    }
+
+    // Check for draw
+
+    // TODO: 
+
+
+    if (!gameState.gameOver && gameState.playerMoves.length + gameState.computerMoves.length === 9) {
+        gameState.gameOver = true;
+        gameState.winner = 'draw';
+    }
+
+    // Use the native async methods of Redis client
+    await redisClient.hSet(`game:${gameId}`, 'state', JSON.stringify(gameState));
+
+    res.json({
+        playerMoves: gameState.playerMoves,
+        computerMoves: gameState.computerMoves,
+        gameOver: gameState.gameOver,
+        winner: gameState.winner
+    });
+}
+
+// Define routes
+app.post('/game', startNewGame);
+app.post('/game/:gameId/move', makeMove);
 
 // Start the server
-app.listen(port, () => {
-  console.log(`Server is listening on port ${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
 });

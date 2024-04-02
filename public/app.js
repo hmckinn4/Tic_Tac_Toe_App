@@ -19,8 +19,18 @@ function startNewGame() {
 
 function makeMove(event, gameId) {
   // If this function was triggered by a computer starting the game, there won't be an event
-  const cellIndex = event ? event.target.getAttribute('data-cell-index') : null;
+  let cellIndex = null; // Use 'let' to declare 'cellIndex' so it can be reassigned
 
+
+  // Validation before making a move
+  if (event) {
+    cellIndex = parseInt(event.target.getAttribute('data-cell-index'));
+    if (isNaN(cellIndex) || cellIndex < 0 || cellIndex > 9) {
+      console.error('Invalid cell index:', cellIndex);
+      return;
+    }
+  }
+  
   // Check if the game is already over
   const gameOver = localStorage.getItem('gameOver');
   if (gameOver === 'true') {
@@ -56,7 +66,7 @@ function generateGameBoard(gameId) {
   gameBoard.style.maxWidth = '300px';
   gameBoard.style.margin = 'auto';
 
-  for (let i = 1; i <= 9; i++) {
+  for (let i = 0; i <= 8; i++) {
     const cell = document.createElement('div');
     cell.style.border = '1px solid #000';
     cell.style.height = '100px';
